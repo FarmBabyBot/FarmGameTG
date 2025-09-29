@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ферма 2.0</title>
+  <!-- React + ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-green-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+
+// ==== КОД ФЕРМЫ ====
+const CROP_TYPES = {
+  carrot: { name: "Морковь", time: 30, sell: 6, seedPrice: 2 },
+  wheat: { name: "Пшеница", time: 20, sell: 4, seedPrice: 1 },
+  potato: { name: "Картошка", time: 45, sell: 10, seedPrice: 3 },
+};
+
+const ANIMAL_TYPES = {
+  chicken: { name: "Курица", price: 20, produce: "egg", produceTime: 20, produceAmount: 1, sell: 2 },
+  cow: { name: "Корова", price: 80, produce: "milk", produceTime: 60, produceAmount: 1, sell: 8 },
+};
+
+const DEFAULT_PLOTS = 9;
+
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function PlantMenu({ seeds, onPlant }) {
+  return (
+    <div className="flex gap-1">
+      {Object.entries(CROP_TYPES).map(([k, def]) => (
+        <button
+          key={k}
+          disabled={(seeds[k] ?? 0) <= 0}
+          className={\`px-2 py-1 text-xs rounded \${(seeds[k] ?? 0) <= 0 ? 'bg-gray-200 text-gray-400' : 'bg-green-200'}\`}
+          onClick={() => onPlant(k)}
+        >
+          {def.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FarmApp() {
+  const [money, setMoney] = React.useState(50);
+  const [plots, setPlots] = React.useState(Array.from({ length: DEFAULT_PLOTS }, () => ({ status: "empty" })));
+  const [inventory, setInventory] = React.useState({ seeds: { carrot: 3, wheat: 5, potato: 1 }, crops: {}, products: {} });
+  const [animals, setAnimals] = React.useState([]);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setPlots(prev => prev.map(p => {
+        if (p.status === "growing") {
+          const remain = Math.max(0, (p.remain ?? p.time) - 1);
+          if (remain === 0) return { status: "ready", type: p.type };
+          return { ...p, remain };
+        }
+        return p;
+      }));
+
+      setAnimals(prev => prev.map(a => {
+        const typeDef = ANIMAL_TYPES[a.type];
+        const remain = Math.max(0, (a.remain ?? typeDef.produceTime) - 1);
+        if (remain === 0) {
+          setInventory(inv => ({ ...inv, products: { ...inv.products, [typeDef.produce]: (inv.products[typeDef.produce] ?? 0) + typeDef.produceAmount } }));
+          return { ...a, remain: typeDef.produceTime };
+        }
+        return { ...a, remain };
+      }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function plantSeed(idx, type) {
+    if ((inventory.seeds[type] ?? 0) <= 0) return alert("Нет семян");
+    setPlots(prev => {
+      if (prev[idx].status !== "empty") return prev;
+      const crop = CROP_TYPES[type];
+      const next = [...prev];
+      next[idx] = { status: "growing", type, time: crop.time, remain: crop.time };
+      return next;
+    });
+    setInventory(inv => ({ ...inv, seeds: { ...inv.seeds, [type]: inv.seeds[type] - 1 } }));
+  }
+
+  function harvest(idx) {
+    setPlots(prev => {
+      const p = prev[idx];
+      if (p.status !== "ready") return prev;
+      setInventory(inv => ({ ...inv, crops: { ...inv.crops, [p.type]: (inv.crops[p.type] ?? 0) + 1 } }));
+      const next = [...prev];
+      next[idx] = { status: "empty" };
+      return next;
+    });
+  }
+
+  function sell(itemType, category) {
+    if ((inventory[category][itemType] ?? 0) <= 0) return;
+    let price = 0;
+    if (category === "crops") price = CROP_TYPES[itemType].sell;
+    if (category === "products") price = { egg: 2, milk: 8 }[itemType] ?? 1;
+    setInventory(inv => ({ ...inv, [category]: { ...inv[category], [itemType]: inv[category][itemType] - 1 } }));
+    setMoney(m => m + price);
+  }
+
+  function buySeed(type) {
+    const price = CROP_TYPES[type].seedPrice;
+    if (money < price) return alert("Мало денег");
+    setMoney(m => m - price);
+    setInventory(inv => ({ ...inv, seeds: { ...inv.seeds, [type]: (inv.seeds[type] ?? 0) + 1 } }));
+  }
+
+  function buyAnimal(type) {
+    const def = ANIMAL_TYPES[type];
+    if (money < def.price) return alert("Мало денег");
+    setMoney(m => m - def.price);
+    setAnimals(arr => [...arr, { id: Date.now() + Math.random(), type, remain: def.produceTime }]);
+  }
+
+  return (
+    <div className="p-4 max-w-6xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Ферма 2.0</h1>
+      <div className="mb-4">💰 {money} монет</div>
+
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        {plots.map((p, i) => (
+          <div key={i} className="p-2 border rounded bg-white">
+            {p.status === "empty" && <PlantMenu seeds={inventory.seeds} onPlant={(seed) => plantSeed(i, seed)} />}
+            {p.status === "growing" && (
+              <div>
+                <div>{CROP_TYPES[p.type].name}</div>
+                <div>{formatTime(p.remain)}</div>
+              </div>
+            )}
+            {p.status === "ready" && (
+              <button className="px-2 py-1 bg-yellow-200 rounded" onClick={() => harvest(i)}>Собрать</button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <h2 className="text-lg font-semibold mb-2">Магазин</h2>
+      <div className="grid grid-cols-2 gap-2 mb-6">
+        {Object.entries(CROP_TYPES).map(([k, def]) => (
+          <div key={k} className="p-2 border rounded bg-white flex justify-between">
+            <div>{def.name} — {def.seedPrice} 💰</div>
+            <button className="px-2 py-1 bg-green-200 rounded" onClick={() => buySeed(k)}>Купить</button>
+          </div>
+        ))}
+        {Object.entries(ANIMAL_TYPES).map(([k, def]) => (
+          <div key={k} className="p-2 border rounded bg-white flex justify-between">
+            <div>{def.name} — {def.price} 💰</div>
+            <button className="px-2 py-1 bg-indigo-200 rounded" onClick={() => buyAnimal(k)}>Купить</button>
+          </div>
+        ))}
+      </div>
+
+      <h2 className="text-lg font-semibold mb-2">Инвентарь</h2>
+      <div className="mb-2">Семена: {Object.entries(inventory.seeds).map(([k,v]) => \`\${CROP_TYPES[k].name}: \${v} \`).join(" | ")}</div>
+      <div className="mb-2">Урожай: {Object.entries(inventory.crops).map(([k,v]) => <span key={k}>{CROP_TYPES[k].name}: {v} <button onClick={() => sell(k,"crops")} className="ml-1 text-xs bg-yellow-200 rounded px-1">Продать</button> </span>)}</div>
+      <div className="mb-2">Продукты: {Object.entries(inventory.products).map(([k,v]) => <span key={k}>{k}: {v} <button onClick={() => sell(k,"products")} className="ml-1 text-xs bg-yellow-200 rounded px-1">Продать</button> </span>)}</div>
+
+      <h2 className="text-lg font-semibold mb-2">Животные</h2>
+      <div className="space-y-2">
+        {animals.length === 0 && <div>Нет животных</div>}
+        {animals.map(a => (
+          <div key={a.id} className="p-2 border rounded bg-white flex justify-between">
+            <div>{ANIMAL_TYPES[a.type].name} — {ANIMAL_TYPES[a.type].produce} через {formatTime(a.remain)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<FarmApp />);
+  </script>
+</body>
+</html>
